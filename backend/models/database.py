@@ -38,8 +38,11 @@ class InterviewSession(Base):
     status = Column(String(30), default="active")        # active | completed | abandoned
     avg_score = Column(Float, nullable=True)
     resume_filename = Column(String(500), nullable=True)
-    resume_chroma_id = Column(String(200), nullable=True)  # ChromaDB collection name
+    resume_chroma_id = Column(String(200), nullable=True)  # VectorDB collection name
     report_path = Column(String(500), nullable=True)
+    job_description = Column(Text, nullable=True)
+    candidate_profile = Column(Text, nullable=True)       # JSON serialized CandidateProfile
+    competency_divergence = Column(Float, nullable=True)  # Overall Delta(C, J)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
 
@@ -61,6 +64,11 @@ class QAPair(Base):
     feedback = Column(Text, nullable=True)
     ideal_answer_outline = Column(Text, nullable=True)
     topic = Column(String(200), nullable=True)
+    rubric_breakdown = Column(Text, nullable=True)     # JSON serialized 5-dimension rubric
+    pedagogical_tier = Column(String(100), nullable=True)
+    difficulty_lambda = Column(Integer, default=3)
+    is_followup = Column(Boolean, default=False)
+    parent_question_id = Column(String(36), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("InterviewSession", back_populates="qa_pairs")

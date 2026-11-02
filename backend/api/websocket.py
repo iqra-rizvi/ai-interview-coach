@@ -1,10 +1,11 @@
 """
 backend/api/websocket.py
-WebSocket endpoint for real-time streaming interviews.
+WebSocket endpoint for real-time streaming interviews in AgentHire.
 """
 from __future__ import annotations
 import uuid
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -32,7 +33,7 @@ async def _send(ws: WebSocket, data: dict):
 async def interview_websocket(websocket: WebSocket):
     await websocket.accept()
     session_id = str(uuid.uuid4())
-    logger.info(f"[WS] New connection -> session {session_id}")
+    logger.info(f"[WS] Connection opened -> session {session_id}")
 
     state = {
         "session_id": session_id,
@@ -45,6 +46,9 @@ async def interview_websocket(websocket: WebSocket):
         "qa_history": [],
         "current_question": "",
         "current_topic": "",
+        "current_tier": "Tier 1: Foundational",
+        "current_difficulty": 3,
+        "is_followup": False,
     }
 
     try:
@@ -60,46 +64,70 @@ async def interview_websocket(websocket: WebSocket):
                 state["resume_summary"] = msg.get("resume_summary", "No resume provided.")
                 state["question_number"] = 1
 
-                question, topic = _interviewer.generate_first_question(
-                    session_id=session_id, role=state["role"],
+                question, topic, tier, diff = _interviewer.generate_first_question(
+                    session_id=session_id,
+                    role=state["role"],
                     interview_type=state["interview_type"],
                     resume_summary=state["resume_summary"],
                     max_questions=settings.max_questions,
                 )
                 state["current_question"] = question
                 state["current_topic"] = topic
+                state["current_tier"] = tier
+                state["current_difficulty"] = diff
 
                 await _send(websocket, {
-                    "type": "question", "question": question,
-                    "question_number": 1, "topic": topic,
+                    "type": "question",
+                    "question": question,
+                    "question_number": 1,
+                    "topic": topic,
+                    "pedagogical_tier": tier,
+                    "difficulty_lambda": diff,
+                    "is_followup": False,
                     "is_final": 1 >= settings.max_questions,
                 })
 
             elif action == "answer":
                 answer = msg.get("text", "").strip()
                 if not answer:
-                    await _send(websocket, {"type": "error", "message": "Empty answer"})
+                    await _send(websocket, {"type": "error", "message": "Empty answer provided"})
                     continue
 
                 q_num = state["question_number"]
+                is_current_followup = state.get("is_followup", False)
 
                 evaluation = _evaluator.evaluate(
-                    session_id=session_id, question=state["current_question"],
-                    answer=answer, role=state["role"],
+                    session_id=session_id,
+                    question=state["current_question"],
+                    answer=answer,
+                    role=state["role"],
                     interview_type=state["interview_type"],
+                    is_followup=is_current_followup,
                 )
+
+                rubric_dict = {}
+                for dim, r in evaluation.get("rubric_scores", {}).items():
+                    rubric_dict[dim] = r.model_dump() if hasattr(r, "model_dump") else r
+
                 await _send(websocket, {
                     "type": "evaluation",
                     "score": evaluation["score"],
+                    "composite_5": evaluation.get("composite_5", 3.0),
                     "strengths": evaluation.get("strengths", []),
                     "weaknesses": evaluation.get("weaknesses", []),
                     "ideal": evaluation.get("ideal_answer_outline", ""),
+                    "rubric_scores": rubric_dict,
+                    "requires_probing": evaluation.get("requires_probing", False),
                 })
 
                 feedback_text = _feedback.generate_feedback(
-                    session_id=session_id, question=state["current_question"],
-                    answer=answer, evaluation=evaluation, role=state["role"],
-                    resume_summary=state["resume_summary"], topic=state["current_topic"],
+                    session_id=session_id,
+                    question=state["current_question"],
+                    answer=answer,
+                    evaluation=evaluation,
+                    role=state["role"],
+                    resume_summary=state["resume_summary"],
+                    topic=state["current_topic"],
                 )
                 await _send(websocket, {"type": "feedback", "text": feedback_text})
 
@@ -111,54 +139,109 @@ async def interview_websocket(websocket: WebSocket):
                     "question": state["current_question"],
                     "answer": answer,
                     "topic": state["current_topic"],
-                    **evaluation,
+                    "score": evaluation["score"],
+                    "strengths": evaluation.get("strengths", []),
+                    "weaknesses": evaluation.get("weaknesses", []),
+                    "ideal_answer_outline": evaluation.get("ideal_answer_outline", ""),
                     "feedback": feedback_text,
+                    "rubric_scores": rubric_dict,
+                    "pedagogical_tier": state["current_tier"],
+                    "difficulty_lambda": state["current_difficulty"],
+                    "is_followup": is_current_followup,
                 })
 
-                next_q_num = q_num + 1
-                if next_q_num > settings.max_questions:
-                    summary, pdf_path, avg_score = _reporter.compile_report(
-                        session_id=session_id, candidate_name=state["candidate_name"],
-                        role=state["role"], interview_type=state["interview_type"],
-                        qa_pairs=state["qa_history"],
+                # Check adaptive probing condition
+                if evaluation.get("requires_probing") and not is_current_followup:
+                    probe_q, probe_top, probe_tier, probe_diff = _interviewer.synthesize_followup_probe(
+                        question=state["current_question"],
+                        candidate_answer=answer,
+                        evaluation=evaluation,
+                        role=state["role"],
                     )
-                    pdf_filename = pdf_path.split("/")[-1] if pdf_path else ""
+                    state["current_question"] = probe_q
+                    state["current_topic"] = probe_top
+                    state["current_tier"] = probe_tier
+                    state["current_difficulty"] = probe_diff
+                    state["is_followup"] = True
+
                     await _send(websocket, {
-                        "type": "complete", "avg_score": avg_score,
-                        "report_url": f"/reports/{pdf_filename}",
-                        "executive_summary": summary,
+                        "type": "question",
+                        "question": probe_q,
+                        "question_number": q_num,
+                        "topic": probe_top,
+                        "pedagogical_tier": probe_tier,
+                        "difficulty_lambda": probe_diff,
+                        "is_followup": True,
+                        "is_final": False,
+                        "probe_notice": "Adaptive Probing Triggered: Probing boundary understanding.",
                     })
                 else:
-                    is_final = next_q_num >= settings.max_questions
-                    next_q, next_topic = _interviewer.generate_next_question(
-                        session_id=session_id, role=state["role"],
-                        interview_type=state["interview_type"],
-                        resume_summary=state["resume_summary"],
-                        last_answer=answer, question_number=next_q_num,
-                        max_questions=settings.max_questions,
-                        covered_topics=state["covered_topics"], is_final=is_final,
-                    )
-                    state["question_number"] = next_q_num
-                    state["current_question"] = next_q
-                    state["current_topic"] = next_topic
-                    await _send(websocket, {
-                        "type": "question", "question": next_q,
-                        "question_number": next_q_num,
-                        "topic": next_topic, "is_final": is_final,
-                    })
+                    state["is_followup"] = False
+                    next_q_num = q_num + 1
+                    if next_q_num > settings.max_questions:
+                        summary, pdf_path, avg_score, radar, curriculum = _reporter.compile_report(
+                            session_id=session_id,
+                            candidate_name=state["candidate_name"],
+                            role=state["role"],
+                            interview_type=state["interview_type"],
+                            qa_pairs=state["qa_history"],
+                        )
+                        pdf_filename = Path(pdf_path).name if pdf_path else ""
+                        await _send(websocket, {
+                            "type": "complete",
+                            "avg_score": avg_score,
+                            "report_url": f"/reports/{pdf_filename}",
+                            "executive_summary": summary,
+                            "rubric_radar": radar,
+                            "curriculum": curriculum,
+                        })
+                    else:
+                        is_final = next_q_num >= settings.max_questions
+                        next_q, next_topic, next_tier, next_diff = _interviewer.generate_next_question(
+                            session_id=session_id,
+                            role=state["role"],
+                            interview_type=state["interview_type"],
+                            resume_summary=state["resume_summary"],
+                            last_answer=answer,
+                            question_number=next_q_num,
+                            max_questions=settings.max_questions,
+                            covered_topics=state["covered_topics"],
+                            is_final=is_final,
+                        )
+                        state["question_number"] = next_q_num
+                        state["current_question"] = next_q
+                        state["current_topic"] = next_topic
+                        state["current_tier"] = next_tier
+                        state["current_difficulty"] = next_diff
+
+                        await _send(websocket, {
+                            "type": "question",
+                            "question": next_q,
+                            "question_number": next_q_num,
+                            "topic": next_topic,
+                            "pedagogical_tier": next_tier,
+                            "difficulty_lambda": next_diff,
+                            "is_followup": False,
+                            "is_final": is_final,
+                        })
 
             elif action == "finish":
                 if state["qa_history"]:
-                    summary, pdf_path, avg_score = _reporter.compile_report(
-                        session_id=session_id, candidate_name=state["candidate_name"],
-                        role=state["role"], interview_type=state["interview_type"],
+                    summary, pdf_path, avg_score, radar, curriculum = _reporter.compile_report(
+                        session_id=session_id,
+                        candidate_name=state["candidate_name"],
+                        role=state["role"],
+                        interview_type=state["interview_type"],
                         qa_pairs=state["qa_history"],
                     )
-                    pdf_filename = pdf_path.split("/")[-1] if pdf_path else ""
+                    pdf_filename = Path(pdf_path).name if pdf_path else ""
                     await _send(websocket, {
-                        "type": "complete", "avg_score": avg_score,
+                        "type": "complete",
+                        "avg_score": avg_score,
                         "report_url": f"/reports/{pdf_filename}",
                         "executive_summary": summary,
+                        "rubric_radar": radar,
+                        "curriculum": curriculum,
                     })
                 else:
                     await _send(websocket, {"type": "error", "message": "No answers recorded yet"})

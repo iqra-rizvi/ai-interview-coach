@@ -5,7 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # Groq (free!)
     groq_api_key: str = ""
-    llm_model: str = "llama3-8b-8192"
+    llm_model: str = "openai/gpt-oss-20b"
     embedding_backend: str = "local"
 
     # App

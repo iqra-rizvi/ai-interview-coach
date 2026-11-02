@@ -38,7 +38,8 @@ def check_env():
         os.environ.setdefault(k, v)
 
     print("✓ Environment OK")
-    print(f"✓ Model: {env.get('LLM_MODEL', 'llama3-8b-8192')}")
+    print(f"✓ Active LLM Model: {env.get('LLM_MODEL', 'openai/gpt-oss-20b')}")
+    print(f"✓ Local Embedding: {env.get('EMBEDDING_BACKEND', 'local (all-MiniLM-L6-v2)')}")
 
 
 def main():
@@ -47,10 +48,16 @@ def main():
     ui_only  = "--ui-only"  in args
 
     check_env()
+
+    # Pre-create data directories
+    for p in ["./data/resumes", "./data/reports", "./data/vectordb"]:
+        os.makedirs(p, exist_ok=True)
+
     procs = []
 
-    print("\n🤖 AI Interview Coach")
-    print("-" * 40)
+    print("\n" + "=" * 65)
+    print("🚀 AgentHire: Multi-Agent Intelligent Interview Preparation Platform")
+    print("=" * 65)
 
     if not ui_only:
         print("Starting FastAPI   → http://localhost:8000")

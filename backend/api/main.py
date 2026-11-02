@@ -17,13 +17,16 @@ from backend.utils.config import get_settings
 
 settings = get_settings()
 
+# Ensure directories exist before mounting static files
+for directory in ["./data/resumes", "./data/reports", "./data/vectordb"]:
+    os.makedirs(directory, exist_ok=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──────────────────────────────────────────────────────────────
-    logger.info("Starting AI Interview Coach API...")
+    logger.info("Starting AgentHire (AI Interview Coach) API...")
 
-    # Ensure data directories exist
     for directory in ["./data/resumes", "./data/reports", "./data/vectordb"]:
         os.makedirs(directory, exist_ok=True)
         logger.info(f"Directory ready: {directory}")
@@ -39,16 +42,17 @@ async def lifespan(app: FastAPI):
     yield  # Application running
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
-    logger.info("Shutting down AI Interview Coach API...")
+    logger.info("Shutting down AgentHire API...")
 
 
 app = FastAPI(
-    title="AI Interview Coach",
+    title="AgentHire — Intelligent Interview Coach",
     description=(
-        "AI-powered mock interview platform with RAG, multi-agent evaluation, "
-        "real-time feedback, and PDF performance reports."
+        "Agentic AI-based interview preparation and candidate evaluation platform "
+        "powered by LangGraph, 5-dimensional rubric scoring, verbatim evidence verification, "
+        "and adaptive knowledge-boundary probing."
     ),
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 

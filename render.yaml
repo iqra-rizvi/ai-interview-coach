@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: agenthire
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python deploy_runner.py
+    plan: free
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: openai/gpt-oss-20b
+      - key: EMBEDDING_BACKEND
+        value: local
+      - key: API_BASE_URL
+        value: http://127.0.0.1:8000
+    autoDeploy: true
