@@ -44,16 +44,27 @@ def ensure_backend_alive():
         pass
 
     import subprocess, sys
-    for p in ["./data/resumes", "./data/reports", "./data/vectordb"]:
-        os.makedirs(p, exist_ok=True)
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    for p in ["resumes", "reports", "vectordb"]:
+        os.makedirs(os.path.join(repo_root, "data", p), exist_ok=True)
+
+    env = {**os.environ}
+    pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_root}{os.pathsep}{pythonpath}" if pythonpath else repo_root
 
     cmd = [
         sys.executable, "-m", "uvicorn", "backend.api.main:app",
         "--host", "127.0.0.1", "--port", "8000"
     ]
     try:
-        subprocess.Popen(cmd, env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(8):
+        subprocess.Popen(
+            cmd,
+            cwd=repo_root,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        for _ in range(12):
             time.sleep(0.5)
             try:
                 r = requests.get(f"{API_URL}/docs", timeout=1.0)
