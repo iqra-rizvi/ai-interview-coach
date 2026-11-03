@@ -741,10 +741,14 @@ elif s.page == "benchmark":
         st.dataframe(ablation_df, hide_index=True, use_container_width=True)
 
     st.markdown("""
-    <div style="background:#1e293b; border-radius:12px; padding:1.2rem; margin-top:1.5rem; border:1px solid #334155;">
-        <b>The Verbatim Evidence Verification Invariant:</b><br>
-        $$V(\\tau_k, A) = 1.0 \\quad \\text{if } (\\tau_k \\in A \\land \\text{len}(\\tau_k) \\ge 15) \\quad \\text{else } 0.0$$
-        $$S_{comp} = \\sum_{k=1}^5 w_k c_k V(\\tau_k, A)$$
+    <div style="background:#1e293b; border-radius:12px; padding:1rem 1.2rem; margin-top:1.5rem; border:1px solid #334155; margin-bottom: 0.5rem;">
+        <strong style="color:#5eead4; font-size:1.05rem;">The Verbatim Evidence Verification Invariant:</strong>
+    </div>
+    """, unsafe_allow_html=True)
+    st.latex(r"V(\tau_k, A) = \begin{cases} 1.0 & \text{if } \tau_k \subseteq A \land \text{len}(\tau_k) \ge 15 \\ 0.0 & \text{otherwise} \end{cases}")
+    st.latex(r"S_{comp} = \sum_{k=1}^5 w_k \cdot c_k \cdot V(\tau_k, A) \quad \left(\sum_{k=1}^5 w_k = 1.0\right)")
+    st.markdown("""
+    <div style="background:rgba(15, 23, 42, 0.6); border-radius:8px; padding:0.8rem 1rem; border:1px solid #334155; font-size:0.9rem; color:#94a3b8;">
         Every evaluation score emitted by the platform is mathematically bound to verifiable textual spans extracted directly from the candidate's transcript, eliminating hallucinated grading.
     </div>
     """, unsafe_allow_html=True)
